@@ -1,21 +1,33 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import "./Chat.scss";
 import { AuthContext } from "../../context/AuthContext";
 import apiRequest from "../../lib/apiRequest";
 import { format } from "timeago.js";
-import { SocketContext } from "../../context/SocketContext.jsx";
+import { SocketContext } from "../../context/SocketContext";
+import { useNotificationStore } from "../../lib/notificationStore";
 
 function Chat({ chats }) {
   const [chat, setChat] = useState(null);
   const { currentUser } = useContext(AuthContext);
   const { socket } = useContext(SocketContext);
 
+  const messageEndRef = useRef();
+
+  const decrease = useNotificationStore((state) => state.decrease);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat]);
+
   const handleOpenChat = async (id, receiver) => {
     try {
       const res = await apiRequest("/chats/" + id);
+      if (!res.data.seenBy.includes(currentUser.id)) {
+        decrease();
+      }
       setChat({ ...res.data, receiver });
-    } catch (error) {
-      console.log(error);
+    } catch (err) {
+      console.log(err);
     }
   };
 
@@ -26,7 +38,6 @@ function Chat({ chats }) {
     const text = formData.get("text");
 
     if (!text) return;
-
     try {
       const res = await apiRequest.post("/messages/" + chat.id, { text });
       setChat((prev) => ({ ...prev, messages: [...prev.messages, res.data] }));
@@ -35,8 +46,8 @@ function Chat({ chats }) {
         receiverId: chat.receiver.id,
         data: res.data,
       });
-    } catch (error) {
-      console.log(error);
+    } catch (err) {
+      console.log(err);
     }
   };
 
@@ -44,10 +55,11 @@ function Chat({ chats }) {
     const read = async () => {
       try {
         await apiRequest.put("/chats/read/" + chat.id);
-      } catch (error) {
-        console.log(error);
+      } catch (err) {
+        console.log(err);
       }
     };
+
     if (chat && socket) {
       socket.on("getMessage", (data) => {
         if (chat.id === data.chatId) {
@@ -56,7 +68,11 @@ function Chat({ chats }) {
         }
       });
     }
-  }, [chat, socket]);
+    return () => {
+      socket.off("getMessage");
+    };
+  }, [socket, chat]);
+
   return (
     <div className="chat">
       <div className="messages">
@@ -83,7 +99,7 @@ function Chat({ chats }) {
         <div className="chatBox">
           <div className="top">
             <div className="user">
-              <img src={chat.receiver.avatar || "/noavatar.jpg"} alt="" />
+              <img src={chat.receiver.avatar || "noavatar.jpg"} alt="" />
               {chat.receiver.username}
             </div>
             <span className="close" onClick={() => setChat(null)}>
@@ -94,7 +110,6 @@ function Chat({ chats }) {
             {chat.messages.map((message) => (
               <div
                 className="chatMessage"
-                key={message.id}
                 style={{
                   alignSelf:
                     message.userId === currentUser.id
@@ -103,11 +118,13 @@ function Chat({ chats }) {
                   textAlign:
                     message.userId === currentUser.id ? "right" : "left",
                 }}
+                key={message.id}
               >
                 <p>{message.text}</p>
-                <span>{format(message.createAt)}</span>
+                <span>{format(message.createdAt)}</span>
               </div>
             ))}
+            <div ref={messageEndRef}></div>
           </div>
           <form onSubmit={handleSubmit} className="bottom">
             <textarea name="text"></textarea>
